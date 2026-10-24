@@ -1,0 +1,19 @@
+{
+  "_note": "Seed entry from public reporting (Unit 42, Tenable, Phoenix Security). VERIFY against the official PHP announcement before the demo.",
+  "advisories": [
+    {
+      "id": "PHP2Shell",
+      "cves": ["CVE-2026-109618", "CVE-2026-109619"],
+      "component": "php-core",
+      "severity": "critical",
+      "published": "2026-10-21",
+      "summary": "Two PHP core remote code execution flaws.",
+      "fixed_in": ["8.5.12", "8.4.27", "8.3.36", "8.2.35"],
+      "no_fix_note": "Branches below 8.2 are end of life upstream; upgrade to a supported branch.",
+      "sources": [
+        "https://unit42.paloaltonetworks.com/cve-2026-109618-cve-2026-109619/",
+        "https://www.tenable.com/blog/php2shell-cve-2026-109618-cve-2026-109619-frequently-asked-questions-about-critical-php-remote"
+      ]
+    }
+  ]
+}

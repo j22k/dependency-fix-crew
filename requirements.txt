@@ -1,0 +1,6 @@
+uagents==0.25.5
+openai
+python-dotenv
+requests
+pytest
+ruff
