@@ -15,15 +15,18 @@ class ScanResult(Model):
     ok: bool
     error: str = ""
     php_version: str = ""
+    php_constraint: str = ""
+    version_source: str = ""
     packages: Dict[str, str] = {}  # composer package -> installed version
     source: str = ""  # where the data came from
 
 
 class AdvisoryRequest(Model):
     session_id: str
-    php_version: str
+    php_version: str = ""
+    php_constraint: str = ""
+    version_source: str = ""
     packages: Dict[str, str] = {}
-
 
 class Finding(Model):
     advisory_id: str
