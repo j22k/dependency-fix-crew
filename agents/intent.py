@@ -58,6 +58,17 @@ def is_rejection(text: str) -> bool:
     return t in _NO or t.startswith("no ")
 
 
+def parse_selection(text: str) -> Optional[dict]:
+    """A card click arrives as a JSON string like {"action": "approve_issue", ...}; else None."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    if isinstance(data, dict) and data.get("action") in ("approve_issue", "reject_issue"):
+        return data
+    return None
+
+
 def extract_repo(text: str) -> str:
     """Pull owner/name from free text (used when approval needs a repo to file into)."""
     kind, target = regex_intent(text)

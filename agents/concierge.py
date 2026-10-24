@@ -18,8 +18,10 @@ from uagents_core.contrib.protocols.chat import (
 )
 
 from agents import mocks
+from agents.cards import cards_on, review_card
 from agents.intent import (
-    INTENT_PROMPT, extract_repo, is_approval, is_rejection, parse_llm_json, regex_intent,
+    INTENT_PROMPT, extract_repo, is_approval, is_rejection, parse_llm_json, parse_selection,
+    regex_intent,
 )
 from agents.models import (
     AdvisoryRequest, AdvisoryResult, FixRequest, FixResult, ScanRequest, ScanResult,
@@ -47,8 +49,24 @@ HELP = (
 )
 
 
+LABELS = {"SCANNER_ADDRESS": "Scanner", "ADVISORY_ADDRESS": "Advisory", "FIXER_ADDRESS": "Fixer"}
+_TASKS: set = set()  # keep references so watchdog tasks are not garbage collected
+
+
 def mocks_on() -> bool:
     return os.environ.get("USE_MOCKS") == "1"
+
+
+def timeout_s() -> float:
+    return float(os.environ.get("DOWNSTREAM_TIMEOUT_S", "30"))
+
+
+async def watchdog(ctx: Context, session_id: str, token: int, label: str):
+    """If no reply arrives for this step in time, tell the user instead of waiting forever."""
+    await asyncio.sleep(timeout_s())
+    s = SESSIONS.get(session_id)
+    if s and s.get("token") == token:
+        await fail(ctx, session_id, f"the {label} agent did not respond in time.")
 
 
 async def say(ctx: Context, user: str, text: str):
@@ -90,6 +108,12 @@ async def dispatch(ctx: Context, session_id: str, env_name: str, request, mock_f
     if not address:
         await fail(ctx, session_id, f"{env_name} is not configured.")
         return
+    s = SESSIONS.get(session_id)
+    if s is not None:
+        s["token"] = s.get("token", 0) + 1
+        task = asyncio.create_task(watchdog(ctx, session_id, s["token"], LABELS.get(env_name, env_name)))
+        _TASKS.add(task)
+        task.add_done_callback(_TASKS.discard)
     await ctx.send(address, request)
 
 
@@ -158,12 +182,17 @@ async def on_fix_result(ctx: Context, msg: FixResult):
         await say(ctx, s["user"], f"Done. Issue filed: {msg.issue_url}")
         return
     s["plan"] = msg.plan_markdown
+    s["token"] = s.get("token", 0) + 1  # waiting on the user now, not a downstream agent
     PENDING[s["user"]] = msg.session_id
-    await say(
-        ctx, s["user"],
+    text = (
         f"Verdict:\n{verdict_text(s['findings'])}\n\nPlan:\n{msg.plan_markdown}\n\n"
-        "Reply 'yes' to file this as a GitHub issue, or 'no' to stop.",
+        "Reply 'yes' to file this as a GitHub issue, or 'no' to stop."
     )
+    if cards_on():
+        # The narration is the complete plain-text fallback if the card is not rendered.
+        await ctx.send(s["user"], review_card(text, msg.session_id, s["findings"], msg.plan_markdown))
+    else:
+        await say(ctx, s["user"], text)
 
 
 async def handle_approval(ctx: Context, user: str, session_id: str, text: str) -> bool:
@@ -180,6 +209,10 @@ async def handle_approval(ctx: Context, user: str, session_id: str, text: str) -
     if s.get("awaiting_repo"):
         repo = extract_repo(text)
         if not repo:
+            if regex_intent(text)[0] != "unknown":  # a fresh request, not the repo answer
+                PENDING.pop(user, None)
+                SESSIONS.pop(session_id, None)
+                return False
             await say(ctx, user, "Which repo (owner/name) should I file the issue in?")
             return True
     elif is_approval(text):
@@ -203,6 +236,12 @@ async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
     text = "".join(c.text for c in msg.content if isinstance(c, TextContent)).strip()
     if not text:
         return
+    selection = parse_selection(text)  # a card button click
+    if selection:
+        text = "yes" if selection["action"] == "approve_issue" else "no"
+        sid = selection.get("session_id", "")
+        if SESSIONS.get(sid, {}).get("user") == sender:
+            PENDING[sender] = sid
     pending = PENDING.get(sender)
     if pending and await handle_approval(ctx, sender, pending, text):
         return

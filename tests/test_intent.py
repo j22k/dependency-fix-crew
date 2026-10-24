@@ -1,6 +1,13 @@
 from agents.intent import (
-    extract_repo, is_approval, is_rejection, parse_llm_json, regex_intent,
+    extract_repo, is_approval, is_rejection, parse_llm_json, parse_selection, regex_intent,
 )
+
+
+def test_parse_selection():
+    assert parse_selection('{"action": "approve_issue", "session_id": "abc"}')["session_id"] == "abc"
+    assert parse_selection('{"action": "reject_issue"}')["action"] == "reject_issue"
+    assert parse_selection("yes") is None
+    assert parse_selection('{"action": "other"}') is None
 
 
 def test_version_from_text():
