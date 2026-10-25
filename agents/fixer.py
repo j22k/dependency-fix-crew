@@ -79,8 +79,27 @@ def _generate_fallback_plan(findings: list[Finding]) -> tuple[str, str, str]:
     return plan_markdown, title, issue_body
 
 
-def _generate_with_asi1(target: str, findings: list[Finding]) -> tuple[str, str, str]:
-    """Generate remediation plan and issue draft with ASI1, falling back to local template on error."""
+def _call_asi1_sync(api_key: str, prompt: str) -> str:
+    """Synchronous OpenAI completion call executed in a separate worker thread."""
+    client = OpenAI(
+        base_url="https://api.asi1.ai/v1",
+        api_key=api_key,
+        timeout=30.0,
+        max_retries=0,
+    )
+    completion = client.chat.completions.create(
+        model="asi1",
+        messages=[
+            {"role": "system", "content": "You write clear, actionable security remediation plans and GitHub issues."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+    )
+    return completion.choices[0].message.content or ""
+
+
+async def _generate_with_asi1(target: str, findings: list[Finding]) -> tuple[str, str, str]:
+    """Generate remediation plan and issue draft with ASI1, falling back to local template on error or timeout."""
     api_key = os.environ.get("ASI1_API_KEY", "").strip()
     if not api_key:
         return _generate_fallback_plan(findings)
@@ -107,16 +126,7 @@ def _generate_with_asi1(target: str, findings: list[Finding]) -> tuple[str, str,
     )
 
     try:
-        client = OpenAI(base_url="https://api.asi1.ai/v1", api_key=api_key, timeout=10.0)
-        completion = client.chat.completions.create(
-            model="asi1",
-            messages=[
-                {"role": "system", "content": "You write clear, actionable security remediation plans and GitHub issues."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-        )
-        content = completion.choices[0].message.content or ""
+        content = await asyncio.to_thread(_call_asi1_sync, api_key, prompt)
         if "===PLAN===" in content and "===TITLE===" in content and "===BODY===" in content:
             plan_part = content.split("===PLAN===")[1].split("===TITLE===")[0].strip()
             title_part = content.split("===TITLE===")[1].split("===BODY===")[0].strip()
@@ -126,8 +136,8 @@ def _generate_with_asi1(target: str, findings: list[Finding]) -> tuple[str, str,
         elif content.strip():
             _, fallback_title, fallback_body = _generate_fallback_plan(findings)
             return content.strip(), fallback_title, f"{content.strip()}\n\n{fallback_body}"
-    except (OpenAIError, requests.RequestException, ValueError) as err:
-        logger.warning("ASI1 generation failed, falling back to local template: %s", err)
+    except (OpenAIError, requests.RequestException, ValueError, TimeoutError) as err:
+        logger.warning("ASI1 generation failed or timed out, falling back to local template: %s", err)
 
     return _generate_fallback_plan(findings)
 
@@ -207,7 +217,7 @@ async def on_fix(ctx: Context, sender: str, msg: FixRequest):
 
     if not msg.file_issue:
         # Phase 1: generate remediation plan & issue draft, store by session_id
-        plan_markdown, issue_title, issue_body = _generate_with_asi1(msg.target, msg.findings)
+        plan_markdown, issue_title, issue_body = await _generate_with_asi1(msg.target, msg.findings)
         DRAFTS[msg.session_id] = {
             "plan_markdown": plan_markdown,
             "issue_title": issue_title,

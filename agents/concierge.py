@@ -58,7 +58,7 @@ def mocks_on() -> bool:
 
 
 def timeout_s() -> float:
-    return float(os.environ.get("DOWNSTREAM_TIMEOUT_S", "30"))
+    return float(os.environ.get("DOWNSTREAM_TIMEOUT_S", "60"))
 
 
 async def watchdog(ctx: Context, session_id: str, token: int, label: str):

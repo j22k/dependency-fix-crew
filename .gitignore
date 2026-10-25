@@ -8,3 +8,4 @@ __pycache__/
 # local uAgents identity / storage files
 *.sqlite
 *_data.json
+private_keys.json
