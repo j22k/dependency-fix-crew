@@ -1,11 +1,17 @@
 from agents.intent import (
-    extract_repo, is_approval, is_rejection, parse_llm_json, parse_selection, regex_intent,
+    extract_repo,
+    is_approval,
+    is_rejection,
+    parse_llm_json,
+    parse_selection,
+    regex_intent,
 )
 
 
 def test_parse_selection():
     assert parse_selection('{"action": "approve_issue", "session_id": "abc"}')["session_id"] == "abc"
     assert parse_selection('{"action": "reject_issue"}')["action"] == "reject_issue"
+    assert parse_selection('{"selection": {"action": "approve_issue", "session_id": "xyz"}}')["session_id"] == "xyz"
     assert parse_selection("yes") is None
     assert parse_selection('{"action": "other"}') is None
 
@@ -40,7 +46,11 @@ def test_llm_json_unusable():
 
 def test_approval_and_rejection():
     assert is_approval("Yes") and is_approval("yes, file it") and is_approval("approve!")
+    assert is_approval("File GitHub issue")
+    assert is_approval("file issue")
     assert is_rejection("no") and is_rejection("cancel")
+    assert is_rejection("Not now")
+    assert is_rejection("not now")
     assert not is_approval("maybe")
 
 

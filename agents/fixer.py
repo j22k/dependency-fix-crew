@@ -11,7 +11,7 @@ from uagents import Agent, Context
 from agents.mocks import mock_fix
 from agents.models import Finding, FixRequest, FixResult
 
-load_dotenv()
+load_dotenv(override=True)
 logger = logging.getLogger("fixer")
 
 try:
@@ -237,15 +237,13 @@ async def on_fix(ctx: Context, sender: str, msg: FixRequest):
     # Phase 2: user approved filing issue
     draft = DRAFTS.get(msg.session_id)
     if not draft:
-        await ctx.send(
-            sender,
-            FixResult(
-                session_id=msg.session_id,
-                ok=False,
-                error=f"No issue draft found for session '{msg.session_id}'. Generate plan first.",
-            ),
-        )
-        return
+        plan_markdown, issue_title, issue_body = await _generate_with_asi1(msg.target, msg.findings)
+        draft = {
+            "plan_markdown": plan_markdown,
+            "issue_title": issue_title,
+            "issue_body": issue_body,
+        }
+        DRAFTS[msg.session_id] = draft
 
     repo = _parse_github_repo(msg.target)
     if not repo:

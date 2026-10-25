@@ -13,8 +13,11 @@ INTENT_PROMPT = (
 _VERSION_RE = re.compile(r"\b(\d+\.\d+(?:\.\d+)?)\b")
 _REPO_URL_RE = re.compile(r"github\.com/([\w.-]+)/([\w.-]+?)(?:\.git)?(?:[/\s?#]|$)", re.I)
 _REPO_WORD_RE = re.compile(r"\brepo(?:sitory)?\s+([\w.-]+/[\w.-]+)", re.I)
-_YES = {"yes", "y", "approve", "approved", "ok", "okay", "confirm", "file it", "go ahead", "sure"}
-_NO = {"no", "n", "cancel", "reject", "stop", "skip"}
+_YES = {
+    "yes", "y", "approve", "approved", "ok", "okay", "confirm", "file it",
+    "go ahead", "sure", "file github issue", "file issue", "file an issue",
+}
+_NO = {"no", "n", "cancel", "reject", "stop", "skip", "not now", "dont file", "don't file"}
 
 
 def regex_intent(text: str) -> Tuple[str, str]:
@@ -50,22 +53,41 @@ def parse_llm_json(raw: str) -> Optional[Tuple[str, str]]:
 
 def is_approval(text: str) -> bool:
     t = text.strip().lower().rstrip(".!")
+    if "approve_issue" in t:
+        return True
+    if any(phrase in t for phrase in ("file github issue", "file issue", "file it", "go ahead", "approve", "confirm")):
+        return True
     return t in _YES or t.startswith("yes")
 
 
 def is_rejection(text: str) -> bool:
     t = text.strip().lower().rstrip(".!")
-    return t in _NO or t.startswith("no ")
+    if "reject_issue" in t:
+        return True
+    if any(phrase in t for phrase in ("not now", "cancel", "reject", "stop", "skip", "don't file", "dont file")):
+        return True
+    return t in _NO or t.startswith("no ") or t == "no"
 
 
 def parse_selection(text: str) -> Optional[dict]:
     """A card click arrives as a JSON string like {"action": "approve_issue", ...}; else None."""
     try:
         data = json.loads(text)
-    except ValueError:
+    except (ValueError, TypeError):
         return None
-    if isinstance(data, dict) and data.get("action") in ("approve_issue", "reject_issue"):
-        return data
+    if isinstance(data, dict):
+        if data.get("action") in ("approve_issue", "reject_issue"):
+            return data
+        sel = data.get("selection")
+        if isinstance(sel, dict) and sel.get("action") in ("approve_issue", "reject_issue"):
+            return sel
+        if isinstance(sel, str):
+            try:
+                inner = json.loads(sel)
+                if isinstance(inner, dict) and inner.get("action") in ("approve_issue", "reject_issue"):
+                    return inner
+            except ValueError:
+                pass
     return None
 
 
