@@ -6,6 +6,7 @@ With USE_MOCKS=1 the downstream steps are answered in-process from agents/mocks.
 Concierge can be demoed alone.
 """
 import asyncio
+import json
 import os
 import uuid
 from typing import Dict
@@ -27,7 +28,7 @@ from agents.models import (
     AdvisoryRequest, AdvisoryResult, FixRequest, FixResult, ScanRequest, ScanResult,
 )
 
-load_dotenv()
+load_dotenv(override=True)
 llm = OpenAI(base_url="https://api.asi1.ai/v1", api_key=os.environ.get("ASI1_API_KEY", ""))
 
 agent = Agent(
@@ -58,7 +59,7 @@ def mocks_on() -> bool:
 
 
 def timeout_s() -> float:
-    return float(os.environ.get("DOWNSTREAM_TIMEOUT_S", "30"))
+    return float(os.environ.get("DOWNSTREAM_TIMEOUT_S", "60"))
 
 
 async def watchdog(ctx: Context, session_id: str, token: int, label: str):
@@ -216,7 +217,12 @@ async def handle_approval(ctx: Context, user: str, session_id: str, text: str) -
             await say(ctx, user, "Which repo (owner/name) should I file the issue in?")
             return True
     elif is_approval(text):
-        repo = extract_repo(text) or s["repo"] or os.environ.get("DEMO_REPO", "")
+        repo = (
+            extract_repo(text)
+            or s.get("repo")
+            or (s.get("target") if s.get("kind") == "repo" else "")
+            or os.environ.get("DEMO_REPO", "").strip()
+        )
         if not repo:
             s["awaiting_repo"] = True
             await say(ctx, user, "Which repo (owner/name) should I file the issue in?")
@@ -225,6 +231,7 @@ async def handle_approval(ctx: Context, user: str, session_id: str, text: str) -
         PENDING.pop(user, None)  # a new request, not an answer
         return False
     s["awaiting_repo"] = False
+    await say(ctx, user, "Filing GitHub issue now...")
     req = FixRequest(session_id=session_id, target=repo, findings=s["findings"], file_issue=True)
     await dispatch(ctx, session_id, "FIXER_ADDRESS", req, mocks.mock_fix)
     return True
@@ -234,14 +241,36 @@ async def handle_approval(ctx: Context, user: str, session_id: str, text: str) -
 async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
     await ctx.send(sender, ChatAcknowledgement(acknowledged_msg_id=msg.msg_id))
     text = "".join(c.text for c in msg.content if isinstance(c, TextContent)).strip()
+
+    # Check for card interaction in text or metadata content
+    selection = parse_selection(text)
+    if not selection:
+        for c in msg.content:
+            if hasattr(c, "metadata") and isinstance(c.metadata, dict):
+                for k in ("selection", "card_payload", "action", "data"):
+                    val = c.metadata.get(k)
+                    if val:
+                        parsed = parse_selection(val) if isinstance(val, str) else None
+                        if not parsed and isinstance(val, dict):
+                            parsed = parse_selection(json.dumps(val))
+                        if parsed:
+                            selection = parsed
+                            break
+                if selection:
+                    break
+
+    if selection:
+        text = "yes" if selection.get("action") == "approve_issue" else "no"
+        sid = selection.get("session_id", "")
+        if sid in SESSIONS:
+            PENDING[sender] = sid
+            SESSIONS[sid]["user"] = sender
+        elif SESSIONS.get(sid, {}).get("user") == sender:
+            PENDING[sender] = sid
+
     if not text:
         return
-    selection = parse_selection(text)  # a card button click
-    if selection:
-        text = "yes" if selection["action"] == "approve_issue" else "no"
-        sid = selection.get("session_id", "")
-        if SESSIONS.get(sid, {}).get("user") == sender:
-            PENDING[sender] = sid
+
     pending = PENDING.get(sender)
     if pending and await handle_approval(ctx, sender, pending, text):
         return
