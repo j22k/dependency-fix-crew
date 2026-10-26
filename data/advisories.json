@@ -12,7 +12,8 @@
       "no_fix_note": "Branches below 8.2 are end of life upstream; upgrade to a supported branch.",
       "sources": [
         "https://unit42.paloaltonetworks.com/cve-2026-109618-cve-2026-109619/",
-        "https://www.tenable.com/blog/php2shell-cve-2026-109618-cve-2026-109619-frequently-asked-questions-about-critical-php-remote"
+        "https://www.tenable.com/blog/php2shell-cve-2026-109618-cve-2026-109619-frequently-asked-questions-about-critical-php-remote",
+        "https://www.php.net/archive/2026.php#2026-10-21-5"
       ]
     }
   ]
